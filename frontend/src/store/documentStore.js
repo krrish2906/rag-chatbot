@@ -48,6 +48,17 @@ const useDocumentStore = create((set) => ({
             set({ isUploading: false });
         }
     },
+
+    deleteDocument: async (documentId) => {
+        try {
+            await api.delete(`/documents/${documentId}`);
+            set((state) => ({
+                documents: state.documents.filter((doc) => doc.id !== documentId),
+            }));
+        } catch (error) {
+            throw new Error(getErrorMessage(error, "Failed to delete document"), { cause: error });
+        }
+    },
 }));
 
 export default useDocumentStore;

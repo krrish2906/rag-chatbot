@@ -1,13 +1,15 @@
 import fitz
 from docx import Document
 
-def parse_pdf(file_path: str):
-    text = ""
+def parse_pdf(file_path: str, filename: str = "Document"):
+    pages_text = []
     pdf = fitz.open(file_path)
 
-    for page in pdf:
-        text += page.get_text()
-    return text
+    for i, page in enumerate(pdf, 1):
+        page_text = page.get_text().strip()
+        if page_text:
+            pages_text.append(f"[Source: {filename} | Page {i}]\n\n{page_text}")
+    return "\n\n===PAGE_BREAK===\n\n".join(pages_text)
 
 def parse_docx(file_path: str):
     text = ""
@@ -27,10 +29,11 @@ def parse_txt(file_path: str):
 
 def parse_document(
     file_path: str,
-    file_type: str
+    file_type: str,
+    filename: str = "Document"
 ):
     if file_type == "application/pdf":
-        return parse_pdf(file_path)
+        return parse_pdf(file_path, filename)
 
     elif file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
         return parse_docx(file_path)

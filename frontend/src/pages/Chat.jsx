@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
@@ -14,6 +14,10 @@ import {
     Upload,
     MessageSquare,
     Trash2,
+    Pencil,
+    Check,
+    X,
+    Loader2,
 } from "lucide-react";
 import useAuthStore from "../store/authStore";
 import useChatStore from "../store/chatStore";
@@ -74,10 +78,145 @@ function autoFenceSqlBlocks(markdownText) {
     return out.join("\n");
 }
 
+function getPageNum(text) {
+    if (!text) return null;
+    const match = text.match(/\[Source:\s*[^|]+\|\s*Page\s*(\d+)\]/i);
+    return match ? match[1] : null;
+}
+
+function SessionListItem({
+    session,
+    isActive,
+    onSelect,
+    onDelete,
+    onRename,
+}) {
+    const [isEditing, setIsEditing] = useState(false);
+    const [draftTitle, setDraftTitle] = useState(session.title);
+    const inputRef = useRef(null);
+
+    useEffect(() => {
+        setDraftTitle(session.title);
+    }, [session.title]);
+
+    useEffect(() => {
+        if (isEditing) {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        }
+    }, [isEditing]);
+
+    const saveRename = async () => {
+        const nextTitle = draftTitle.trim();
+        if (!nextTitle) {
+            setDraftTitle(session.title);
+            setIsEditing(false);
+            return;
+        }
+        if (nextTitle !== session.title) {
+            await onRename(session.id, nextTitle);
+        }
+        setIsEditing(false);
+    };
+
+    const cancelRename = () => {
+        setDraftTitle(session.title);
+        setIsEditing(false);
+    };
+
+    if (isEditing) {
+        return (
+            <div
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg ${
+                    isActive ? "bg-zinc-800" : "bg-zinc-800/60"
+                }`}
+            >
+                <input
+                    ref={inputRef}
+                    value={draftTitle}
+                    onChange={(e) => setDraftTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                            e.preventDefault();
+                            saveRename();
+                        }
+                        if (e.key === "Escape") {
+                            e.preventDefault();
+                            cancelRename();
+                        }
+                    }}
+                    onBlur={saveRename}
+                    className="flex-1 min-w-0 bg-zinc-900 border border-zinc-600 rounded-md px-2 py-1 text-sm text-zinc-100 outline-none focus:border-zinc-500"
+                />
+                <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={saveRename}
+                    className="p-1 hover:bg-zinc-700 rounded"
+                >
+                    <Check size={14} className="text-zinc-300" />
+                </button>
+                <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={cancelRename}
+                    className="p-1 hover:bg-zinc-700 rounded"
+                >
+                    <X size={14} className="text-zinc-300" />
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div
+            className={`group w-full flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm transition-colors ${
+                isActive
+                    ? "bg-zinc-800 text-zinc-100"
+                    : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+            }`}
+        >
+            <button
+                type="button"
+                onClick={() => onSelect(session.id)}
+                onDoubleClick={(e) => {
+                    e.preventDefault();
+                    setIsEditing(true);
+                }}
+                className="flex flex-1 items-center gap-2 min-w-0 text-left py-0.5"
+            >
+                <MessageSquare size={16} className="shrink-0 opacity-70" />
+                <span className="flex-1 truncate">{session.title}</span>
+            </button>
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    setIsEditing(true);
+                }}
+                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-700 rounded transition-opacity shrink-0"
+                aria-label="Rename chat"
+            >
+                <Pencil size={13} />
+            </button>
+            <button
+                type="button"
+                onClick={(e) => onDelete(session.id, e)}
+                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-700 rounded transition-opacity shrink-0"
+                aria-label="Delete chat"
+            >
+                <Trash2 size={14} />
+            </button>
+        </div>
+    );
+}
+
 function Chat() {
     const navigate = useNavigate();
     const fileInputRef = useRef(null);
     const scrollRef = useRef(null);
+    const inputRef = useRef(null);
+    const inputValueRef = useRef("");
     const user = useAuthStore((state) => state.user);
     const logout = useAuthStore((state) => state.logout);
 
@@ -87,7 +226,9 @@ function Chat() {
     const sendMessage = useChatStore((state) => state.sendMessage);
     const loadSessions = useChatStore((state) => state.loadSessions);
     const createSession = useChatStore((state) => state.createSession);
+    const startNewChat = useChatStore((state) => state.startNewChat);
     const switchSession = useChatStore((state) => state.switchSession);
+    const renameSession = useChatStore((state) => state.renameSession);
     const deleteSession = useChatStore((state) => state.deleteSession);
     const isSending = useChatStore((state) => state.isSending);
     const isThinking = useChatStore((state) => state.isThinking);
@@ -96,8 +237,14 @@ function Chat() {
     const fetchDocuments = useDocumentStore((state) => state.fetchDocuments);
     const uploadDocuments = useDocumentStore((state) => state.uploadDocuments);
     const isUploading = useDocumentStore((state) => state.isUploading);
+    const deleteDocument = useDocumentStore((state) => state.deleteDocument);
 
     const [input, setInput] = useState("");
+    const [selectedChunk, setSelectedChunk] = useState(null);
+
+    useEffect(() => {
+        inputValueRef.current = input;
+    }, [input]);
 
     useEffect(() => {
         const initializeData = async () => {
@@ -203,15 +350,64 @@ function Chat() {
         [],
     );
 
-    const handleSend = async () => {
-        if (!input.trim()) return;
+    const handleSend = useCallback(async () => {
+        const query = inputValueRef.current.trim();
+        if (!query) return;
 
-        const query = input;
         setInput("");
+        inputValueRef.current = "";
         try {
+            if (!activeSessionId) {
+                await createSession();
+            }
             await sendMessage(query);
         } catch (error) {
             toast.error(error.message || "Unable to process message");
+        }
+    }, [activeSessionId, createSession, sendMessage]);
+
+    const isEditableTarget = (target) => {
+        if (!(target instanceof HTMLElement)) return false;
+        if (target.isContentEditable) return true;
+        const tag = target.tagName;
+        return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    };
+
+    useEffect(() => {
+        const handleGlobalKeyDown = (event) => {
+            if (isSending || isThinking) return;
+            if (isEditableTarget(event.target)) return;
+
+            if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                inputRef.current?.focus();
+                if (inputValueRef.current.trim()) {
+                    handleSend();
+                }
+                return;
+            }
+
+            if (event.metaKey || event.ctrlKey || event.altKey) return;
+            if (event.key.length !== 1) return;
+
+            event.preventDefault();
+            inputRef.current?.focus();
+            setInput((prev) => {
+                const next = prev + event.key;
+                inputValueRef.current = next;
+                return next;
+            });
+        };
+
+        window.addEventListener("keydown", handleGlobalKeyDown);
+        return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+    }, [activeSessionId, isSending, isThinking, handleSend]);
+
+    const handleRenameSession = async (sessionId, title) => {
+        try {
+            await renameSession(sessionId, title);
+        } catch (error) {
+            toast.error(error.message || "Could not rename chat");
         }
     };
 
@@ -237,13 +433,9 @@ function Chat() {
         }
     };
 
-    const handleNewChat = async () => {
-        try {
-            await createSession();
-            toast.success("New chat started");
-        } catch {
-            toast.error("Could not create a new chat");
-        }
+    const handleNewChat = () => {
+        startNewChat();
+        toast.success("New chat started");
     };
 
     const handleDeleteSession = async (sessionId, event) => {
@@ -253,6 +445,16 @@ function Chat() {
             toast.success("Chat deleted");
         } catch {
             toast.error("Could not delete chat");
+        }
+    };
+
+    const handleDeleteDocument = async (documentId, event) => {
+        event.stopPropagation();
+        try {
+            await deleteDocument(documentId);
+            toast.success("Document deleted");
+        } catch {
+            toast.error("Could not delete document");
         }
     };
 
@@ -295,7 +497,11 @@ function Chat() {
                         disabled={isUploading}
                         className="mt-2 w-full flex items-center gap-2 bg-transparent hover:bg-zinc-800 text-zinc-300 px-3 py-2.5 rounded-lg text-sm transition-colors disabled:opacity-60"
                     >
-                        <Upload size={18} />
+                        {isUploading ? (
+                            <Loader2 size={18} className="animate-spin text-zinc-400" />
+                        ) : (
+                            <Upload size={18} />
+                        )}
                         {isUploading ? "Uploading..." : "Upload document"}
                     </button>
                     <input
@@ -314,34 +520,19 @@ function Chat() {
                     </p>
                     <div className="space-y-0.5">
                         {sessions.length === 0 ? (
-                            <p className="text-sm text-zinc-500 px-3 py-2">No chats yet</p>
+                            <p className="text-sm text-zinc-500 px-3 py-2">
+                                No chats yet. Click &quot;New chat&quot; to begin.
+                            </p>
                         ) : (
                             sessions.map((session) => (
-                                <button
+                                <SessionListItem
                                     key={session.id}
-                                    onClick={() => switchSession(session.id)}
-                                    className={`group w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-left transition-colors ${
-                                        session.id === activeSessionId
-                                            ? "bg-zinc-800 text-zinc-100"
-                                            : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
-                                    }`}
-                                >
-                                    <MessageSquare size={16} className="shrink-0 opacity-70" />
-                                    <span className="flex-1 truncate">{session.title}</span>
-                                    <span
-                                        role="button"
-                                        tabIndex={0}
-                                        onClick={(event) => handleDeleteSession(session.id, event)}
-                                        onKeyDown={(event) => {
-                                            if (event.key === "Enter") {
-                                                handleDeleteSession(session.id, event);
-                                            }
-                                        }}
-                                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-700 rounded transition-opacity"
-                                    >
-                                        <Trash2 size={14} />
-                                    </span>
-                                </button>
+                                    session={session}
+                                    isActive={session.id === activeSessionId}
+                                    onSelect={switchSession}
+                                    onDelete={handleDeleteSession}
+                                    onRename={handleRenameSession}
+                                />
                             ))
                         )}
                     </div>
@@ -356,10 +547,20 @@ function Chat() {
                             documents.map((document) => (
                                 <div
                                     key={document.id}
-                                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-zinc-400"
+                                    className="group flex items-center justify-between px-3 py-1.5 rounded-lg text-zinc-400 hover:bg-zinc-800/40 transition-colors"
                                 >
-                                    <FileText size={16} className="shrink-0 opacity-70" />
-                                    <span className="text-sm truncate">{document.filename}</span>
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <FileText size={16} className="shrink-0 opacity-70" />
+                                        <span className="text-sm truncate">{document.filename}</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => handleDeleteDocument(document.id, e)}
+                                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-zinc-700 rounded transition-opacity shrink-0"
+                                        aria-label="Delete document"
+                                    >
+                                        <Trash2 size={13} className="text-zinc-500 hover:text-zinc-200" />
+                                    </button>
                                 </div>
                             ))
                         )}
@@ -434,6 +635,34 @@ function Chat() {
                                                     >
                                                         {autoFenceSqlBlocks(message.content)}
                                                     </ReactMarkdown>
+
+                                                    {message.retrievedChunks && message.retrievedChunks.length > 0 && (
+                                                        <div className="mt-4 border-t border-zinc-800/60 pt-3 flex flex-wrap gap-2 items-center">
+                                                            <span className="text-xs text-zinc-500 select-none">Sources:</span>
+                                                            {message.retrievedChunks.reduce((unique, chunk) => {
+                                                                const page = getPageNum(chunk.text);
+                                                                const key = `${chunk.filename}-${page}`;
+                                                                if (!unique.some(c => `${c.filename}-${getPageNum(c.text)}` === key)) {
+                                                                    unique.push(chunk);
+                                                                }
+                                                                return unique;
+                                                            }, []).map((chunk, index) => {
+                                                                const page = getPageNum(chunk.text);
+                                                                return (
+                                                                    <button
+                                                                        key={index}
+                                                                        onClick={() => setSelectedChunk(chunk)}
+                                                                        className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800/50 hover:bg-zinc-800 border border-zinc-800/60 hover:border-zinc-700 rounded-full text-xs text-zinc-400 hover:text-zinc-200 transition-all cursor-pointer"
+                                                                    >
+                                                                        <FileText size={12} className="shrink-0 opacity-80" />
+                                                                        <span className="truncate max-w-[150px]">
+                                                                            {chunk.filename} {page ? `(Pg. ${page})` : ""}
+                                                                        </span>
+                                                                    </button>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>
@@ -455,16 +684,25 @@ function Chat() {
                             className="relative flex items-end bg-[#2f2f2f] rounded-3xl border border-zinc-700/50 shadow-lg"
                         >
                             <textarea
+                                ref={inputRef}
                                 placeholder="Message RAG Chatbot..."
-                                className="flex-1 bg-transparent text-zinc-100 placeholder-zinc-500 resize-none outline-none text-[15px] py-3.5 pl-4 pr-12 max-h-48 min-h-[52px]"
+                                disabled={isSending || isThinking}
+                                className="flex-1 bg-transparent text-zinc-100 placeholder-zinc-500 resize-none outline-none text-[15px] py-3.5 pl-4 pr-12 max-h-48 min-h-[52px] disabled:opacity-50 disabled:cursor-not-allowed"
                                 rows={1}
                                 value={input}
-                                onChange={(e) => setInput(e.target.value)}
+                                onChange={(e) => {
+                                    setInput(e.target.value);
+                                    inputValueRef.current = e.target.value;
+                                }}
                                 onKeyDown={handleKeyDown}
                             />
                             <button
                                 type="submit"
-                                disabled={isSending || isThinking || !input.trim()}
+                                disabled={
+                                    isSending ||
+                                    isThinking ||
+                                    !input.trim()
+                                }
                                 className="absolute right-2 bottom-2 h-9 w-9 flex items-center justify-center bg-white hover:bg-zinc-100 text-zinc-900 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                                 <Send size={16} />
@@ -476,6 +714,42 @@ function Chat() {
                     </div>
                 </div>
             </main>
+
+            {selectedChunk && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="bg-[#1e1e1e] border border-zinc-800 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+                        <header className="flex items-center justify-between p-4 border-b border-zinc-800/80">
+                            <div className="min-w-0">
+                                <h3 className="text-sm font-semibold text-zinc-100 truncate">
+                                    Source: {selectedChunk.filename}
+                                </h3>
+                                {getPageNum(selectedChunk.text) && (
+                                    <p className="text-xs text-zinc-500 mt-0.5">
+                                        Page {getPageNum(selectedChunk.text)} • Relevance Score: {(selectedChunk.score * 100).toFixed(1)}%
+                                    </p>
+                                )}
+                            </div>
+                            <button
+                                onClick={() => setSelectedChunk(null)}
+                                className="p-1 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-400 hover:text-zinc-200"
+                            >
+                                <X size={16} />
+                            </button>
+                        </header>
+                        <div className="flex-1 overflow-y-auto p-5 text-sm text-zinc-300 font-mono leading-relaxed whitespace-pre-wrap select-text selection:bg-zinc-700/50">
+                            {selectedChunk.text.replace(/\[Source:\s*[^|]+\|\s*Page\s*\d+\]\n\n/i, "")}
+                        </div>
+                        <footer className="p-3 border-t border-zinc-800/80 flex justify-end">
+                            <button
+                                onClick={() => setSelectedChunk(null)}
+                                className="px-4 py-1.5 bg-zinc-800 hover:bg-zinc-750 border border-zinc-700 hover:border-zinc-600 text-zinc-200 rounded-lg text-xs font-medium transition-colors"
+                            >
+                                Close
+                            </button>
+                        </footer>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

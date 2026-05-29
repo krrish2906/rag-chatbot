@@ -26,7 +26,7 @@ ALLOWED_TYPES = [
 
 
 @router.post("/upload")
-async def upload_document(
+def upload_document(
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -42,7 +42,7 @@ async def upload_document(
                 detail=f"Unsupported file type: {file.filename}",
             )
 
-        file_bytes = await file.read()
+        file_bytes = file.file.read()
         storage_key = storage.save(
             file_bytes=file_bytes,
             filename=file.filename,
@@ -65,7 +65,7 @@ async def upload_document(
         if parse_path != storage_key:
             temp_paths.append(parse_path)
 
-        extracted_text = parse_document(parse_path, file.content_type)
+        extracted_text = parse_document(parse_path, file.content_type, file.filename)
         chunks = chunk_text(extracted_text)
 
         store_chunks_in_pinecone(
@@ -113,3 +113,38 @@ def list_documents(
         }
         for document in documents
     ]
+
+
+@router.delete("/{document_id}")
+def delete_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    document = (
+        db.query(Document)
+        .filter(Document.id == document_id, Document.user_id == current_user.id)
+        .first()
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # 1. Clean up local copy if stored locally
+    if os.path.exists(document.filepath):
+        try:
+            os.remove(document.filepath)
+        except Exception:
+            pass
+
+    # 2. Delete vectors from Pinecone
+    try:
+        from app.services.pinecone_service import index
+        index.delete(filter={"document_id": document_id, "user_id": current_user.id})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to sync deletion with vector index: {str(e)}")
+
+    # 3. Delete from relational database
+    db.delete(document)
+    db.commit()
+
+    return {"message": "Document deleted successfully"}

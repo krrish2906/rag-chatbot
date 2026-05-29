@@ -4,7 +4,7 @@ from app.services.pinecone_service import (index)
 def retrieve_relevant_chunks(
     query: str,
     user_id: int,
-    top_k: int = 5
+    top_k: int = 12
 ):
     query_embedding = generate_embedding(query)
 
