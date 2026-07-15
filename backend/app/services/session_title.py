@@ -1,4 +1,4 @@
-from app.services.llm import llm
+from app.services.llm import llm, extract_text_content
 
 TITLE_PROMPT = """Generate a short chat title (3-6 words) for a conversation that starts with the user message below.
 Rules:
@@ -11,16 +11,18 @@ User message:
 """
 
 
-def generate_chat_title(first_message: str) -> str:
+def generate_chat_title(first_message: str, llm_client=None) -> str:
     cleaned = first_message.strip()
     if not cleaned:
         return "New chat"
 
     try:
-        response = llm.invoke(
+        client = llm_client or llm
+        response = client.invoke(
             TITLE_PROMPT.format(message=cleaned[:500])
         )
-        title = (response.content or "").strip().strip("\"'")
+        content_str = extract_text_content(response.content)
+        title = (content_str or "").strip().strip("\"'")
         title = " ".join(title.split())
         if title:
             return title[:60]

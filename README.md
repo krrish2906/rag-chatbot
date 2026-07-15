@@ -108,7 +108,7 @@ The application follows a Retrieval-Augmented Generation (RAG) architecture wher
 
 2. **Create and Activate a Virtual Environment**:
    ```bash
-   python -m venv venv
+   py -3.12 -m venv venv
    # On Windows:
    .\venv\Scripts\activate
    

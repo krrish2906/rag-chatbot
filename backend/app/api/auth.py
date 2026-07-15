@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException
+import os
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -55,6 +56,7 @@ def register_user(
 
 @router.post("/login")
 def login_user(
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
@@ -86,6 +88,18 @@ def login_user(
         }
     )
 
+    cookie_secure = os.getenv("COOKIE_SECURE", "False").lower() in ("true", "1", "yes")
+    cookie_samesite = os.getenv("COOKIE_SAMESITE", "lax")
+
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=cookie_secure,
+        samesite=cookie_samesite,
+        max_age=2 * 24 * 60 * 60  # 2 days
+    )
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -105,3 +119,13 @@ def get_me(
         "username": current_user.username,
         "email": current_user.email
     }
+
+@router.post("/logout")
+def logout_user(response: Response):
+    cookie_samesite = os.getenv("COOKIE_SAMESITE", "lax")
+    response.delete_cookie(
+        key="access_token",
+        httponly=True,
+        samesite=cookie_samesite,
+    )
+    return {"message": "Logged out successfully"}

@@ -5,6 +5,7 @@ from app.models.user import User
 from app.models.document import Document
 from app.models.chat_session import ChatSession
 from app.models.chat_message import ChatMessage
+from app.models.document_parent_chunk import DocumentParentChunk
 
 
 def _ensure_column(table_name: str, column_name: str, ddl: str):
@@ -20,6 +21,11 @@ def _ensure_column(table_name: str, column_name: str, ddl: str):
         connection.execute(text(ddl))
 
 
+def _run_sql(sql_statement: str):
+    with engine.begin() as connection:
+        connection.execute(text(sql_statement))
+
+
 Base.metadata.create_all(bind=engine)
 
 _ensure_column(
@@ -27,5 +33,14 @@ _ensure_column(
     "session_id",
     "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER",
 )
+
+_ensure_column(
+    "chat_sessions",
+    "model_name",
+    "ALTER TABLE chat_sessions ADD COLUMN model_name VARCHAR",
+)
+
+# DB query optimization index
+_run_sql("CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created ON chat_messages (session_id, created_at)")
 
 print("Database tables created.")

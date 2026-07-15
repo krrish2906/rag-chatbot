@@ -26,10 +26,21 @@ const historyToMessages = (history) =>
 
 const useChatStore = create((set, get) => ({
     sessions: [],
+    supportedModels: [],
     activeSessionId: null,
     messages: [],
     isSending: false,
     isThinking: false,
+    isLoadingHistory: false,
+
+    fetchSupportedModels: async () => {
+        try {
+            const response = await api.get("/chat/models");
+            set({ supportedModels: response.data || [] });
+        } catch (error) {
+            console.error("Failed to fetch supported models", error);
+        }
+    },
 
     loadSessions: async () => {
         const response = await api.get("/chat/sessions");
@@ -56,8 +67,8 @@ const useChatStore = create((set, get) => ({
         }
     },
 
-    createSession: async (title = "New chat") => {
-        const response = await api.post("/chat/sessions", { title });
+    createSession: async (title = "New chat", modelName = null) => {
+        const response = await api.post("/chat/sessions", { title, model_name: modelName });
         const session = response.data;
         localStorage.setItem(ACTIVE_SESSION_KEY, String(session.id));
         set((state) => ({
@@ -75,9 +86,15 @@ const useChatStore = create((set, get) => ({
 
     switchSession: async (sessionId) => {
         localStorage.setItem(ACTIVE_SESSION_KEY, String(sessionId));
-        set({ activeSessionId: sessionId, messages: [] });
-        const response = await api.get(`/chat/sessions/${sessionId}/history`);
-        set({ messages: historyToMessages(response.data || []) });
+        set({ activeSessionId: sessionId, messages: [], isLoadingHistory: true });
+        try {
+            const response = await api.get(`/chat/sessions/${sessionId}/history`);
+            set({ messages: historyToMessages(response.data || []) });
+        } catch (error) {
+            console.error("Failed to switch session history", error);
+        } finally {
+            set({ isLoadingHistory: false });
+        }
     },
 
     renameSession: async (sessionId, title) => {
@@ -94,6 +111,21 @@ const useChatStore = create((set, get) => ({
         set((state) => ({
             sessions: state.sessions.map((session) =>
                 session.id === sessionId ? { ...session, title: updated.title } : session
+            ),
+        }));
+    },
+
+    updateSessionModel: async (sessionId, modelName) => {
+        if (!modelName) return;
+
+        const response = await api.patch(`/chat/sessions/${sessionId}`, {
+            model_name: modelName,
+        });
+        const updated = response.data;
+
+        set((state) => ({
+            sessions: state.sessions.map((session) =>
+                session.id === sessionId ? { ...session, model_name: updated.model_name } : session
             ),
         }));
     },
@@ -180,12 +212,11 @@ const useChatStore = create((set, get) => ({
                               id: assistantMessageId,
                               role: "assistant",
                               content: "",
-                              isThinking: false,
+                              isThinking: true, // Keep loader visible during RAG lookup and re-ranking
                               retrievedChunks: [],
                           }
                         : message
                 ),
-                isThinking: false,
             }));
 
             let buffer = "";
@@ -212,9 +243,10 @@ const useChatStore = create((set, get) => ({
                             set((state) => ({
                                 messages: state.messages.map((message) =>
                                     message.id === assistantMessageId
-                                        ? { ...message, retrievedChunks }
+                                        ? { ...message, retrievedChunks, isThinking: false }
                                         : message
                                 ),
+                                isThinking: false,
                             }));
                         } else if (event === "token") {
                             const nextToken = data.token || "";
@@ -222,9 +254,10 @@ const useChatStore = create((set, get) => ({
                             set((state) => ({
                                 messages: state.messages.map((message) =>
                                     message.id === assistantMessageId
-                                        ? { ...message, content: accumulatedContent }
+                                        ? { ...message, content: accumulatedContent, isThinking: false }
                                         : message
                                 ),
+                                isThinking: false,
                             }));
                         } else if (event === "done") {
                             const sessionTitle = data.session_title;

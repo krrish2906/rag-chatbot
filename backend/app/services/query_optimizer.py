@@ -1,5 +1,5 @@
-from app.services.llm import llm
-from langchain.prompts import ChatPromptTemplate
+from app.services.llm import llm, extract_text_content
+from langchain_core.prompts import ChatPromptTemplate
 
 REFORMULATE_PROMPT_TEMPLATE = """
 Given the following conversation history and a new user query, reformulate it into a single, standalone search query that contains all the necessary background context. 
@@ -17,7 +17,7 @@ Standalone Search Query:
 
 reformulate_prompt = ChatPromptTemplate.from_template(REFORMULATE_PROMPT_TEMPLATE)
 
-def reformulate_query(query: str, history_turns: list) -> str:
+def reformulate_query(query: str, history_turns: list, llm_client=None) -> str:
     if not history_turns:
         return query
     
@@ -32,8 +32,9 @@ def reformulate_query(query: str, history_turns: list) -> str:
     )
     
     try:
-        response = llm.invoke(prompt)
-        standalone_query = response.content.strip()
+        client = llm_client or llm
+        response = client.invoke(prompt)
+        standalone_query = extract_text_content(response.content).strip()
         # Clean up potential markdown formatting or quotes in the output
         if standalone_query.startswith('"') and standalone_query.endswith('"'):
             standalone_query = standalone_query[1:-1]

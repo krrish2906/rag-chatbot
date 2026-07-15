@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import os
 
 from fastapi.security import OAuth2PasswordBearer
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -54,8 +54,25 @@ def create_access_token(data: dict):
     return encoded_jwt
 
 
+def get_token_from_cookie_or_header(request: Request) -> str:
+    # 1. Try to get token from HTTP-only cookie
+    token = request.cookies.get("access_token")
+    if token:
+        return token
+    
+    # 2. Try to get token from Authorization header fallback
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        return auth_header.split(" ")[1]
+        
+    raise HTTPException(
+        status_code=401,
+        detail="Not authenticated"
+    )
+
+
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    token: str = Depends(get_token_from_cookie_or_header),
     db: Session = Depends(get_db)
 ):
     try:

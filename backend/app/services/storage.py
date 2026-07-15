@@ -22,6 +22,10 @@ class StorageBackend(ABC):
     def get_local_path(self, storage_key: str) -> str:
         """Return a local filesystem path suitable for parsing."""
 
+    @abstractmethod
+    def delete(self, storage_key: str) -> None:
+        """Delete file from storage backend."""
+
 
 class LocalStorageBackend(StorageBackend):
     def save(self, file_bytes: bytes, filename: str, user_id: int, content_type: str) -> str:
@@ -35,6 +39,13 @@ class LocalStorageBackend(StorageBackend):
 
     def get_local_path(self, storage_key: str) -> str:
         return storage_key
+
+    def delete(self, storage_key: str) -> None:
+        if os.path.exists(storage_key):
+            try:
+                os.remove(storage_key)
+            except Exception:
+                pass
 
 
 class S3StorageBackend(StorageBackend):
@@ -85,6 +96,23 @@ class S3StorageBackend(StorageBackend):
             raise RuntimeError(f"Failed to download from S3: {error}") from error
 
         return temp_file.name
+
+    def delete(self, storage_key: str) -> None:
+        if not storage_key.startswith("s3://"):
+            if os.path.exists(storage_key):
+                try:
+                    os.remove(storage_key)
+                except Exception:
+                    pass
+            return
+
+        _, _, bucket_and_key = storage_key.partition("s3://")
+        bucket, _, key = bucket_and_key.partition("/")
+
+        try:
+            self.client.delete_object(Bucket=bucket, Key=key)
+        except (BotoCoreError, ClientError) as error:
+            print(f"Failed to delete {storage_key} from S3: {error}")
 
 
 def get_storage_backend() -> StorageBackend:

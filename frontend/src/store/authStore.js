@@ -95,8 +95,13 @@ const useAuthStore = create((set, get) => ({
         }
     },
 
-    logout: () => {
+    logout: async () => {
         authEpoch += 1;
+        try {
+            await api.post("/auth/logout");
+        } catch {
+            // Ignore API error and clear local auth state
+        }
         localStorage.removeItem("token");
         set({
             token: null,

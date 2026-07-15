@@ -8,10 +8,11 @@ from app.core.security import get_current_user
 from app.db.session import get_db
 from app.models.document import Document
 from app.models.user import User
-from app.services.chunking import chunk_text
+from app.models.document_parent_chunk import DocumentParentChunk
+from app.services.chunking import chunk_text_parent_child
 from app.services.parser import parse_document
 from app.services.storage import get_storage_backend
-from app.services.vector_store import store_chunks_in_pinecone
+from app.services.vector_store import store_child_chunks_in_pinecone
 
 router = APIRouter(
     prefix="/documents",
@@ -66,13 +67,23 @@ def upload_document(
             temp_paths.append(parse_path)
 
         extracted_text = parse_document(parse_path, file.content_type, file.filename)
-        chunks = chunk_text(extracted_text)
+        parent_child_pairs = chunk_text_parent_child(extracted_text)
 
-        store_chunks_in_pinecone(
-            chunks=chunks,
-            document_id=new_document.id,
-            user_id=current_user.id,
-        )
+        for pair in parent_child_pairs:
+            p_chunk = DocumentParentChunk(
+                document_id=new_document.id,
+                text=pair["parent_text"]
+            )
+            db.add(p_chunk)
+            db.commit()
+            db.refresh(p_chunk)
+
+            store_child_chunks_in_pinecone(
+                parent_id=p_chunk.id,
+                child_texts=pair["child_texts"],
+                document_id=new_document.id,
+                user_id=current_user.id
+            )
 
         uploaded_documents.append(
             {
@@ -129,12 +140,12 @@ def delete_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # 1. Clean up local copy if stored locally
-    if os.path.exists(document.filepath):
-        try:
-            os.remove(document.filepath)
-        except Exception:
-            pass
+    # 1. Clean up file from S3 / Local storage
+    storage = get_storage_backend()
+    try:
+        storage.delete(document.filepath)
+    except Exception:
+        pass
 
     # 2. Delete vectors from Pinecone
     try:
