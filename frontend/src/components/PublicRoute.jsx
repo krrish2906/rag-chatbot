@@ -2,9 +2,9 @@ import { Navigate } from "react-router-dom";
 import useAuthStore from "../store/authStore";
 
 function PublicRoute({ children }) {
-    const token = useAuthStore((state) => state.token);
+    const user = useAuthStore((state) => state.user);
 
-    if (token) {
+    if (user) {
         return <Navigate to="/chat" replace />;
     }
 

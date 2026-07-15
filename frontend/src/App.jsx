@@ -14,16 +14,25 @@ import PublicRoute from "./components/PublicRoute";
 import useAuthStore from "./store/authStore";
 
 function App() {
-    const token = useAuthStore((state) => state.token);
     const fetchMe = useAuthStore((state) => state.fetchMe);
-
-    const user = useAuthStore((state) => state.user);
+    const isInitialized = useAuthStore((state) => state.isInitialized);
 
     useEffect(() => {
-        if (token && !user) {
-            fetchMe().catch(() => { });
-        }
-    }, [token, user, fetchMe]);
+        fetchMe().catch(() => { });
+    }, [fetchMe]);
+
+    if (!isInitialized) {
+        return (
+            <div className="h-screen w-screen bg-[#171717] flex items-center justify-center text-zinc-400 select-none">
+                <div className="flex flex-col items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-zinc-800 flex items-center justify-center animate-pulse">
+                        <span className="text-white font-bold text-lg">R</span>
+                    </div>
+                    <span className="text-xs font-medium tracking-wide">Syncing session...</span>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <BrowserRouter>

@@ -9,8 +9,8 @@ let authEpoch = 0;
 
 const useAuthStore = create((set, get) => ({
     user: null,
-    token: localStorage.getItem("token") || null,
     isLoading: false,
+    isInitialized: false, // Tracks if the initial /auth/me cookie check is completed
 
     register: async (data) => {
         set({ isLoading: true });
@@ -30,10 +30,9 @@ const useAuthStore = create((set, get) => ({
             );
 
             authEpoch += 1;
-            const token = response.data.access_token;
             const user = response.data.user;
-            localStorage.setItem("token", token);
-            set({ token, user });
+            localStorage.removeItem("rag_active_session_id");
+            set({ user, isInitialized: true });
         } catch (error) {
             throw new Error(getErrorMessage(error, "Registration failed"), { cause: error });
         } finally {
@@ -58,10 +57,9 @@ const useAuthStore = create((set, get) => ({
             );
 
             authEpoch += 1;
-            const token = response.data.access_token;
             const user = response.data.user;
-            localStorage.setItem("token", token);
-            set({ token, user });
+            localStorage.removeItem("rag_active_session_id");
+            set({ user, isInitialized: true });
         } catch (error) {
             throw new Error(getErrorMessage(error, "Login failed"), { cause: error });
         } finally {
@@ -71,27 +69,17 @@ const useAuthStore = create((set, get) => ({
 
     fetchMe: async () => {
         const requestEpoch = authEpoch;
-        const token = get().token;
-        if (!token) {
-            return;
-        }
-
         try {
             const response = await api.get("/auth/me");
             if (requestEpoch !== authEpoch) {
                 return;
             }
-            set({ user: response.data });
+            set({ user: response.data, isInitialized: true });
         } catch (error) {
             if (requestEpoch !== authEpoch) {
                 return;
             }
-            const status = error?.response?.status;
-            if (status === 401) {
-                localStorage.removeItem("token");
-                set({ token: null, user: null });
-            }
-            throw new Error(getErrorMessage(error, "Session expired"), { cause: error });
+            set({ user: null, isInitialized: true });
         }
     },
 
@@ -100,13 +88,13 @@ const useAuthStore = create((set, get) => ({
         try {
             await api.post("/auth/logout");
         } catch {
-            // Ignore API error and clear local auth state
+            // Ignore logout API failures
         }
-        localStorage.removeItem("token");
+        localStorage.removeItem("rag_active_session_id");
         set({
-            token: null,
             user: null,
             isLoading: false,
+            isInitialized: true,
         });
     },
 }));

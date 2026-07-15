@@ -181,12 +181,12 @@ const useChatStore = create((set, get) => ({
                 ],
             }));
 
-            const token = localStorage.getItem("token");
-            const response = await fetch("http://127.0.0.1:8000/chat/", {
+            const apiBaseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+            const response = await fetch(`${apiBaseUrl}/chat/`, {
                 method: "POST",
+                credentials: "include",
                 headers: {
                     "Content-Type": "application/json",
-                    ...(token ? { "Authorization": `Bearer ${token}` } : {}),
                 },
                 body: JSON.stringify({
                     query: normalizedQuery,
@@ -209,12 +209,12 @@ const useChatStore = create((set, get) => ({
                 messages: state.messages.map((message) =>
                     message.id === thinkingMessageId
                         ? {
-                              id: assistantMessageId,
-                              role: "assistant",
-                              content: "",
-                              isThinking: true, // Keep loader visible during RAG lookup and re-ranking
-                              retrievedChunks: [],
-                          }
+                            id: assistantMessageId,
+                            role: "assistant",
+                            content: "",
+                            isThinking: true, // Keep loader visible during RAG lookup and re-ranking
+                            retrievedChunks: [],
+                        }
                         : message
                 ),
             }));
