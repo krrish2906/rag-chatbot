@@ -36,6 +36,11 @@ app.include_router(auth_router)
 app.include_router(document_router)
 app.include_router(chat_router)
 
+@app.on_event("startup")
+def on_startup():
+    from app.db.init_db import run_migrations
+    run_migrations()
+
 @app.get("/")
 def root():
-    return {"message": "RAG Backend Running"}
+    return {"message": "RAG Chatbot API is running"}

@@ -26,21 +26,22 @@ def _run_sql(sql_statement: str):
         connection.execute(text(sql_statement))
 
 
-Base.metadata.create_all(bind=engine)
+def run_migrations():
+    print("Running database migrations...")
+    Base.metadata.create_all(bind=engine)
 
-_ensure_column(
-    "chat_messages",
-    "session_id",
-    "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER",
-)
+    _ensure_column(
+        "chat_messages",
+        "session_id",
+        "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER",
+    )
 
-_ensure_column(
-    "chat_sessions",
-    "model_name",
-    "ALTER TABLE chat_sessions ADD COLUMN model_name VARCHAR",
-)
+    _ensure_column(
+        "chat_sessions",
+        "model_name",
+        "ALTER TABLE chat_sessions ADD COLUMN model_name VARCHAR",
+    )
 
-# DB query optimization index
-_run_sql("CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created ON chat_messages (session_id, created_at)")
-
-print("Database tables created.")
+    # DB query optimization index
+    _run_sql("CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created ON chat_messages (session_id, created_at)")
+    print("Database tables created.")
