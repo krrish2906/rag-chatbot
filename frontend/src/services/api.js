@@ -1,7 +1,15 @@
 import axios from "axios";
 
+const getBaseURL = () => {
+    if (import.meta.env.VITE_API_URL) {
+        return import.meta.env.VITE_API_URL;
+    }
+    const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
+    return `http://${hostname}:8000`;
+};
+
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
+    baseURL: getBaseURL(),
     withCredentials: true,
 });
 

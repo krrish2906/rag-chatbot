@@ -181,7 +181,13 @@ const useChatStore = create((set, get) => ({
                 ],
             }));
 
-            const apiBaseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+            const apiBaseUrl = (() => {
+                if (import.meta.env.VITE_API_URL) {
+                    return import.meta.env.VITE_API_URL;
+                }
+                const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
+                return `http://${hostname}:8000`;
+            })();
             const response = await fetch(`${apiBaseUrl}/chat/`, {
                 method: "POST",
                 credentials: "include",

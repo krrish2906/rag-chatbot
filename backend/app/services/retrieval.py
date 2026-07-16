@@ -1,7 +1,7 @@
 import os
 import tempfile
 from sqlalchemy.orm import Session
-from flashrank import Ranker, RerankRequest
+
 
 from app.services.embedding import generate_embedding
 from app.services.pinecone_service import index
@@ -10,9 +10,10 @@ from app.models.document_parent_chunk import DocumentParentChunk
 # Initialize Ranker lazily to avoid blocking startup port-binding
 _ranker = None
 
-def get_ranker() -> Ranker:
+def get_ranker():
     global _ranker
     if _ranker is None:
+        from flashrank import Ranker
         _ranker = Ranker(model_name="ms-marco-MiniLM-L-12-v2", cache_dir=os.path.join(tempfile.gettempdir(), "flashrank"))
     return _ranker
 
@@ -51,6 +52,7 @@ def retrieve_relevant_chunks(
         })
 
     # 2. Rerank matches
+    from flashrank import RerankRequest
     rerank_request = RerankRequest(query=query, passages=passages)
     ranker = get_ranker()
     reranked_results = ranker.rerank(rerank_request)
